@@ -1,11 +1,13 @@
 // sherpa-onnx/csrc/offline-whisper-greedy-search-decoder.cc
 //
 // Copyright (c)  2023  Xiaomi Corporation
+// Modified at Education First 2024 György Szaszák
 
 #include "sherpa-onnx/csrc/offline-whisper-greedy-search-decoder.h"
 
 #include <algorithm>
 #include <utility>
+#include <set>
 
 #include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/onnx-utils.h"
@@ -94,10 +96,33 @@ OfflineWhisperGreedySearchDecoder::Decode(Ort::Value cross_k,
   int32_t n_text_ctx = model_->TextCtx();
 
   std::vector<int32_t> predicted_tokens;
-  for (int32_t i = 0; i < n_text_ctx; ++i) {
+  //SHERPA_ONNX_LOGE("Gy starting decoder for cycle: %d", n_text_ctx);
+  // GS@EF: we add a revision set to detect if decoder is stuck within a loop
+  std::set <int32_t> seen_tokens;
+  int32_t num_seen_tokens = 0;
+  int32_t require_new_token = 10;
+  // ends here
+  int32_t i;
+  for (i = 0; i < n_text_ctx; ++i) {
+    //SHERPA_ONNX_LOGE("Gy infor: %d %d", i, max_token_id);
     if (max_token_id == model_->EOT()) {
       break;
     }
+
+    // We will also break if we are suspecting being stuck in a loop
+    num_seen_tokens = seen_tokens.size();
+    seen_tokens.insert(max_token_id);
+    if (seen_tokens.size() == num_seen_tokens) {
+      require_new_token--;
+    }
+    else {
+      require_new_token = 10;
+    }
+    if (require_new_token < 1) {
+      SHERPA_ONNX_LOGE("[WARNING] Decoder is suspected to be stuck in a loop and hence is forced to stop at frame : %d", i);
+      max_token_id = model_->EOT();
+    }
+    // Inserted fix ends here
 
     predicted_tokens.push_back(max_token_id);
 
